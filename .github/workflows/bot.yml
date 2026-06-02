@@ -1,0 +1,159 @@
+name: Google Trends To X Bot
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "*/5 * * * *"
+
+concurrency:
+  group: google-trends-bot
+  cancel-in-progress: false
+
+jobs:
+
+  run-bot:
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+
+    steps:
+
+      # =========================
+      # CHECKOUT REPOSITORY
+      # =========================
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      # =========================
+      # SETUP PYTHON
+      # =========================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # =========================
+      # INSTALL GOOGLE CHROME
+      # =========================
+      - name: Install Google Chrome
+        run: |
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            wget \
+            unzip \
+            curl
+
+          wget -q \
+            https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+          sudo apt install -y \
+            ./google-chrome-stable_current_amd64.deb
+
+          google-chrome --version
+
+      # =========================
+      # INSTALL PYTHON PACKAGES
+      # =========================
+      - name: Install Dependencies
+        run: |
+
+          python -m pip install --upgrade pip
+
+          pip install \
+            requests \
+            beautifulsoup4 \
+            gnews \
+            selenium \
+            webdriver-manager \
+            google-generativeai
+
+      # =========================
+      # ENSURE LOG FILE EXISTS
+      # =========================
+      - name: Create processed_topics.log
+        run: |
+
+          touch processed_topics.log
+
+      # =========================
+      # DEBUG FILES
+      # =========================
+      - name: Debug Repository Files
+        run: |
+
+          echo "===== CURRENT DIRECTORY ====="
+          pwd
+
+          echo ""
+          echo "===== FILE LIST ====="
+          ls -lah
+
+          echo ""
+          echo "===== GEMINI FILE EXISTS ====="
+
+          if [ -f gemini_keys.txt ]; then
+            echo "gemini_keys.txt ditemukan"
+            echo "Jumlah API Key:"
+            wc -l gemini_keys.txt
+          else
+            echo "ERROR: gemini_keys.txt tidak ditemukan"
+            exit 1
+          fi
+
+      # =========================
+      # RUN BOT
+      # =========================
+      - name: Run Bot
+        env:
+
+          BOT_LICENSE_EMAIL: ${{ secrets.BOT_LICENSE_EMAIL }}
+
+          TWITTER_AUTH_TOKEN: ${{ secrets.TWITTER_AUTH_TOKEN }}
+
+          TWITTER_CT0: ${{ secrets.TWITTER_CT0 }}
+
+        run: |
+
+          python dist/bot3.py
+
+      # =========================
+      # SAVE PROCESSED TOPICS
+      # =========================
+      - name: Commit processed topics log
+        run: |
+
+          git config --global user.name \
+            "github-actions[bot]"
+
+          git config --global user.email \
+            "github-actions[bot]@users.noreply.github.com"
+
+          git add processed_topics.log
+
+          git diff --cached --quiet && exit 0
+
+          git commit -m \
+            "Update processed topics log"
+
+          for i in 1 2 3
+          do
+
+            git pull --rebase origin main || true
+
+            git push origin main && break
+
+            echo "Push gagal, mencoba ulang..."
+
+            sleep 5
+
+          done
